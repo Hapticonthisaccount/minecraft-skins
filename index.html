@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Minecraft Skin Maker</title>
+<style>
+  body { font-family: sans-serif; padding: 24px; max-width: 700px; margin: 0 auto; background: #fff; }
+  h2 { margin: 0 0 20px; }
+  label { display: block; margin-bottom: 6px; font-weight: bold; }
+  .section { margin-bottom: 20px; }
+  .parts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .parts label { font-weight: normal; display: flex; align-items: center; gap: 4px; font-size: 14px; }
+  .sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; }
+  .slider-group label { font-weight: normal; font-size: 14px; margin-bottom: 4px; }
+  input[type=range] { width: 100%; }
+  canvas { border: 1px solid #ccc; image-rendering: pixelated; display: block; }
+  button { padding: 8px 20px; font-size: 15px; cursor: pointer; margin-top: 4px; }
+  #drop { border: 2px dashed #aaa; padding: 20px; text-align: center; cursor: pointer; color: #555; border-radius: 4px; }
+  #drop:hover { border-color: #555; }
+  #controls { display: none; }
+</style>
+</head>
+<body>
+
+<h2>Minecraft Skin Maker</h2>
+
+<div class="section">
+  <label>Image</label>
+  <div id="drop" onclick="document.getElementById('fileInput').click()">
+    Click to choose an image (or drag & drop)
+  </div>
+  <input type="file" id="fileInput" accept="image/*" style="display:none">
+</div>
+
+<div id="controls">
+  <div class="section">
+    <label>Apply to</label>
+    <div class="parts" id="partChecks"></div>
+  </div>
+
+  <div class="section sliders">
+    <div class="slider-group">
+      <label id="detailLabel">Pixel size: 4</label>
+      <input type="range" id="detail" min="1" max="8" value="4">
+    </div>
+    <div class="slider-group">
+      <label id="zoomLabel">Zoom: 100%</label>
+      <input type="range" id="zoom" min="100" max="400" step="5" value="100">
+    </div>
+    <div class="slider-group">
+      <label id="panXLabel">Pan X: 50%</label>
+      <input type="range" id="panX" min="0" max="100" value="50">
+    </div>
+    <div class="slider-group">
+      <label id="panYLabel">Pan Y: 50%</label>
+      <input type="range" id="panY" min="0" max="100" value="50">
+    </div>
+  </div>
+
+  <div class="section">
+    <label>Preview (64×64 scaled up)</label>
+    <canvas id="preview" width="448" height="448"></canvas>
+  </div>
+
+  <button onclick="download()">Download skin.png</button>
+</div>
+
+<script>
+const PARTS = {
+  face:     { x:8,  y:8,  w:8, h:8  },
+  headTop:  { x:8,  y:0,  w:8, h:8  },
+  headBack: { x:24, y:8,  w:8, h:8  },
+  body:     { x:20, y:20, w:8, h:12 },
+  bodyBack: { x:32, y:20, w:8, h:12 },
+  rightArm: { x:44, y:20, w:4, h:12 },
+  leftArm:  { x:36, y:52, w:4, h:12 },
+  rightLeg: { x:4,  y:20, w:4, h:12 },
+  leftLeg:  { x:20, y:52, w:4, h:12 },
+};
+const LABELS = {
+  face:"Face", headTop:"Head Top", headBack:"Head Back",
+  body:"Body Front", bodyBack:"Body Back",
+  rightArm:"Right Arm", leftArm:"Left Arm",
+  rightLeg:"Right Leg", leftLeg:"Left Leg"
+};
+
+let sourceImg = null;
+
+// Build checkboxes
+const partChecks = document.getElementById('partChecks');
+Object.keys(PARTS).forEach(k => {
+  const lbl = document.createElement('label');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.id = 'cb_' + k; cb.checked = true;
+  cb.addEventListener('change', render);
+  lbl.appendChild(cb);
+  lbl.appendChild(document.createTextNode(' ' + LABELS[k]));
+  partChecks.appendChild(lbl);
+});
+
+// File input
+document.getElementById('fileInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  loadFile(file);
+});
+
+// Drag & drop
+const drop = document.getElementById('drop');
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.borderColor='#333'; });
+drop.addEventListener('dragleave', () => { drop.style.borderColor='#aaa'; });
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.style.borderColor='#aaa';
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) loadFile(file);
+});
+
+function loadFile(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    sourceImg = img;
+    drop.innerHTML = '<strong>' + file.name + '</strong> — click to change';
+    document.getElementById('controls').style.display = 'block';
+    render();
+  };
+  img.src = url;
+}
+
+// Sliders
+['detail','zoom','panX','panY'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    document.getElementById(id+'Label').textContent =
+      id === 'detail' ? 'Pixel size: ' + document.getElementById(id).value :
+      id === 'zoom'   ? 'Zoom: ' + document.getElementById(id).value + '%' :
+      id === 'panX'   ? 'Pan X: ' + document.getElementById(id).value + '%' :
+                        'Pan Y: ' + document.getElementById(id).value + '%';
+    render();
+  });
+});
+
+function buildSkin() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+
+  const detail = parseInt(document.getElementById('detail').value);
+  const zoom   = parseInt(document.getElementById('zoom').value) / 100;
+  const panX   = parseInt(document.getElementById('panX').value) / 100;
+  const panY   = parseInt(document.getElementById('panY').value) / 100;
+
+  const sw = sourceImg.naturalWidth;
+  const sh = sourceImg.naturalHeight;
+  const cw = sw / zoom;
+  const ch = sh / zoom;
+  const ox = panX * (sw - cw);
+  const oy = panY * (sh - ch);
+
+  const src = document.createElement('canvas');
+  src.width = sw; src.height = sh;
+  src.getContext('2d').drawImage(sourceImg, 0, 0);
+
+  Object.keys(PARTS).forEach(k => {
+    if (!document.getElementById('cb_' + k).checked) return;
+    const p = PARTS[k];
+
+    const pw = Math.max(1, Math.round(p.w / detail));
+    const ph = Math.max(1, Math.round(p.h / detail));
+
+    const tiny = document.createElement('canvas');
+    tiny.width = pw; tiny.height = ph;
+    const tc = tiny.getContext('2d');
+    tc.imageSmoothingEnabled = false;
+    tc.drawImage(src, ox, oy, cw, ch, 0, 0, pw, ph);
+
+    const scaled = document.createElement('canvas');
+    scaled.width = p.w; scaled.height = p.h;
+    const sc = scaled.getContext('2d');
+    sc.imageSmoothingEnabled = false;
+    sc.drawImage(tiny, 0, 0, p.w, p.h);
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(scaled, p.x, p.y, p.w, p.h);
+  });
+
+  return canvas;
+}
+
+function render() {
+  if (!sourceImg) return;
+  const skin = buildSkin();
+  const ctx = document.getElementById('preview').getContext('2d');
+  ctx.clearRect(0, 0, 448, 448);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(skin, 0, 0, 448, 448);
+}
+
+function download() {
+  if (!sourceImg) return;
+  const skin = buildSkin();
+  const a = document.createElement('a');
+  a.download = 'skin.png';
+  a.href = skin.toDataURL('image/png');
+  a.click();
+}
+</script>
+</body>
+</html>
