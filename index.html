@@ -4,21 +4,20 @@
 <meta charset="UTF-8">
 <title>Minecraft Skin Maker</title>
 <style>
-  body { font-family: sans-serif; padding: 24px; max-width: 900px; margin: 0 auto; background: #fff; }
+  body { font-family: sans-serif; padding: 24px; max-width: 960px; margin: 0 auto; background: #fff; }
   h2 { margin: 0 0 4px; }
   .note { color: #888; font-size: 13px; margin-bottom: 20px; }
-  .section { margin-bottom: 16px; }
-  .bold { font-weight: bold; display: block; margin-bottom: 6px; }
   .sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; margin-bottom: 18px; }
-  .slider-group > span { display: block; font-size: 14px; margin-bottom: 3px; }
+  .sg > span { display: block; font-size: 14px; margin-bottom: 3px; }
   input[type=range] { width: 100%; }
   canvas { image-rendering: pixelated; display: block; }
+  #charPreview { image-rendering: auto; }
   button { padding: 8px 20px; font-size: 15px; cursor: pointer; }
   #drop { border: 2px dashed #aaa; padding: 20px; text-align: center; cursor: pointer; color: #555; border-radius: 4px; margin-bottom: 18px; }
   #drop:hover { border-color: #333; }
   #controls { display: none; }
   .previews { display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 20px; }
-  .preview-box > span { font-weight: bold; display: block; margin-bottom: 6px; }
+  .pb > span { font-weight: bold; display: block; margin-bottom: 6px; font-size: 14px; }
   .checkrow { display: flex; gap: 16px; align-items: center; margin-bottom: 18px; font-size: 14px; }
   .checkrow label { display: flex; align-items: center; gap: 4px; }
 </style>
@@ -26,7 +25,7 @@
 <body>
 
 <h2>Minecraft Skin Maker</h2>
-<p class="note">Your image is mapped across the whole front/back as one piece. Note: Minecraft skins are 64×64px — the character front is only 16×32px, so some pixelation is unavoidable by design.</p>
+<p class="note">Preview is high-res from your original image. The downloaded skin.png is 64×64 (Minecraft's required format).</p>
 
 <div id="drop" onclick="document.getElementById('fileInput').click()">
   Click to choose an image (or drag & drop)
@@ -34,40 +33,42 @@
 <input type="file" id="fileInput" accept="image/*" style="display:none">
 
 <div id="controls">
-
   <div class="checkrow">
     <strong>Apply to:</strong>
     <label><input type="checkbox" id="doFront" checked onchange="render()"> Front</label>
-    <label><input type="checkbox" id="doBack" checked onchange="render()"> Back</label>
+    <label><input type="checkbox" id="doBack"  checked onchange="render()"> Back</label>
   </div>
 
   <div class="sliders">
-    <div class="slider-group">
-      <span id="zoomLabel">Zoom: 100%</span>
-      <input type="range" id="zoom" min="100" max="400" step="5" value="100" oninput="this.previousElementSibling.textContent='Zoom: '+this.value+'%';render()">
+    <div class="sg">
+      <span id="lZoom">Zoom: 100%</span>
+      <input type="range" id="zoom" min="100" max="400" step="5" value="100"
+        oninput="document.getElementById('lZoom').textContent='Zoom: '+this.value+'%';render()">
     </div>
-    <div class="slider-group">
-      <span id="panXLabel">Pan X: 50%</span>
-      <input type="range" id="panX" min="0" max="100" value="50" oninput="this.previousElementSibling.textContent='Pan X: '+this.value+'%';render()">
+    <div class="sg">
+      <span id="lPanX">Pan X: 50%</span>
+      <input type="range" id="panX" min="0" max="100" value="50"
+        oninput="document.getElementById('lPanX').textContent='Pan X: '+this.value+'%';render()">
     </div>
-    <div class="slider-group">
-      <span id="panYLabel">Pan Y: 50%</span>
-      <input type="range" id="panY" min="0" max="100" value="50" oninput="this.previousElementSibling.textContent='Pan Y: '+this.value+'%';render()">
+    <div class="sg">
+      <span id="lPanY">Pan Y: 50%</span>
+      <input type="range" id="panY" min="0" max="100" value="50"
+        oninput="document.getElementById('lPanY').textContent='Pan Y: '+this.value+'%';render()">
     </div>
   </div>
 
   <div class="previews">
-    <div class="preview-box">
+    <div class="pb">
       <span>Your image</span>
-      <img id="imgPreview" src="" style="max-width:180px;max-height:280px;border:1px solid #ccc;display:block;">
+      <img id="imgPreview" src="" style="max-width:180px;max-height:300px;border:1px solid #ccc;display:block;">
     </div>
-    <div class="preview-box">
-      <span>Character preview</span>
-      <!-- 16x32 at 10x = 160x320 -->
-      <canvas id="charPreview" width="160" height="320" style="border:1px solid #ccc;background:#c8e6c9;"></canvas>
+    <div class="pb">
+      <span>Character preview (high-res)</span>
+      <!-- 16:32 ratio, shown large and smooth -->
+      <canvas id="charPreview" width="160" height="320" style="border:1px solid #ccc;background:#c8e6c9;width:160px;height:320px;image-rendering:auto;"></canvas>
     </div>
-    <div class="preview-box">
-      <span>Skin UV (64×64)</span>
+    <div class="pb">
+      <span>Skin UV (64×64 actual)</span>
       <canvas id="uvPreview" width="256" height="256" style="border:1px solid #ccc;"></canvas>
     </div>
   </div>
@@ -76,30 +77,15 @@
 </div>
 
 <script>
-// Each entry: which slice of the 16x32 "front image" maps to which UV region
-// Front character grid (16 wide x 32 tall):
-//   Head  : x=4, y=0,  w=8, h=8
-//   R.Arm : x=0, y=8,  w=4, h=12
-//   Body  : x=4, y=8,  w=8, h=12
-//   L.Arm : x=12,y=8,  w=4, h=12
-//   R.Leg : x=4, y=20, w=4, h=12
-//   L.Leg : x=8, y=20, w=4, h=12
-
-// Back is horizontally mirrored:
-//   Head back : x=4, y=0,  w=8,h=8   (mirrored)
-//   R.Arm back: x=12,y=8,  w=4,h=12
-//   Body back : x=4, y=8,  w=8,h=12
-//   L.Arm back: x=0, y=8,  w=4,h=12
-//   R.Leg back: x=8, y=20, w=4,h=12
-//   L.Leg back: x=4, y=20, w=4,h=12
-
+// Front character body parts in 16x32 char-space
+// Each part: char coords (cx,cy,cw,ch), skin UV coords (ux,uy,uw,uh), flip for back
 const FRONT = [
-  { cx:4,  cy:0,  cw:8, ch:8,  ux:8,  uy:8,  uw:8, uh:8,  flip:false },
-  { cx:0,  cy:8,  cw:4, ch:12, ux:44, uy:20, uw:4, uh:12, flip:false },
-  { cx:4,  cy:8,  cw:8, ch:12, ux:20, uy:20, uw:8, uh:12, flip:false },
-  { cx:12, cy:8,  cw:4, ch:12, ux:36, uy:52, uw:4, uh:12, flip:false },
-  { cx:4,  cy:20, cw:4, ch:12, ux:4,  uy:20, uw:4, uh:12, flip:false },
-  { cx:8,  cy:20, cw:4, ch:12, ux:20, uy:52, uw:4, uh:12, flip:false },
+  { cx:4,  cy:0,  cw:8, ch:8,  ux:8,  uy:8,  uw:8, uh:8,  flip:false }, // face
+  { cx:0,  cy:8,  cw:4, ch:12, ux:44, uy:20, uw:4, uh:12, flip:false }, // right arm
+  { cx:4,  cy:8,  cw:8, ch:12, ux:20, uy:20, uw:8, uh:12, flip:false }, // body
+  { cx:12, cy:8,  cw:4, ch:12, ux:36, uy:52, uw:4, uh:12, flip:false }, // left arm
+  { cx:4,  cy:20, cw:4, ch:12, ux:4,  uy:20, uw:4, uh:12, flip:false }, // right leg
+  { cx:8,  cy:20, cw:4, ch:12, ux:20, uy:52, uw:4, uh:12, flip:false }, // left leg
 ];
 const BACK = [
   { cx:4,  cy:0,  cw:8, ch:8,  ux:24, uy:8,  uw:8, uh:8,  flip:true  },
@@ -137,98 +123,90 @@ function loadFile(file) {
   img.src = url;
 }
 
-// Crop a region from sourceImg (in 16x32 "char space") directly into a canvas of size dw x dh
-// charX, charY, charW, charH are in 0..16 / 0..32 space
-function cropFromSource(charX, charY, charW, charH, dw, dh) {
+// Get crop params: maps the 16x32 char grid onto the source image
+function getCrop() {
   const zoom = parseInt(document.getElementById('zoom').value) / 100;
   const panX = parseInt(document.getElementById('panX').value) / 100;
   const panY = parseInt(document.getElementById('panY').value) / 100;
-
   const sw = sourceImg.naturalWidth, sh = sourceImg.naturalHeight;
-  // The full 16x32 char maps to this crop of the source image
   const cropW = sw / zoom, cropH = sh / zoom;
-  const originX = panX * (sw - cropW);
-  const originY = panY * (sh - cropH);
-
-  // Scale of one char pixel in source pixels
-  const scaleX = cropW / 16;
-  const scaleY = cropH / 32;
-
-  const srcX = originX + charX * scaleX;
-  const srcY = originY + charY * scaleY;
-  const srcW = charW * scaleX;
-  const srcH = charH * scaleY;
-
-  const c = document.createElement('canvas');
-  c.width = dw; c.height = dh;
-  const ctx = c.getContext('2d');
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(sourceImg, srcX, srcY, srcW, srcH, 0, 0, dw, dh);
-  return c;
+  const ox = panX * (sw - cropW);
+  const oy = panY * (sh - cropH);
+  return { ox, oy, cropW, cropH, sw, sh };
 }
 
-function buildSkin() {
-  const skin = document.createElement('canvas');
-  skin.width = 64; skin.height = 64;
-  const ctx = skin.getContext('2d');
-  ctx.clearRect(0, 0, 64, 64);
+// Draw a char part directly from sourceImg into ctx at dest rect (dx,dy,dw,dh), with optional hflip
+function drawPartFromSource(ctx, crop, p, dx, dy, dw, dh, smooth) {
+  const scaleX = crop.cropW / 16;
+  const scaleY = crop.cropH / 32;
+  const sx = crop.ox + p.cx * scaleX;
+  const sy = crop.oy + p.cy * scaleY;
+  const sw = p.cw * scaleX;
+  const sh = p.ch * scaleY;
 
-  const doFront = document.getElementById('doFront').checked;
-  const doBack  = document.getElementById('doBack').checked;
-
-  function pastePart(p) {
-    // Crop directly from source at full UV resolution
-    const cropped = cropFromSource(p.cx, p.cy, p.cw, p.ch, p.uw, p.uh);
-    if (p.flip) {
-      ctx.save();
-      ctx.translate(p.ux + p.uw, p.uy);
-      ctx.scale(-1, 1);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(cropped, 0, 0);
-      ctx.restore();
-    } else {
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(cropped, p.ux, p.uy);
-    }
+  ctx.save();
+  ctx.imageSmoothingEnabled = smooth;
+  if (smooth) ctx.imageSmoothingQuality = 'high';
+  if (p.flip) {
+    ctx.translate(dx + dw, dy);
+    ctx.scale(-1, 1);
+    ctx.drawImage(sourceImg, sx, sy, sw, sh, 0, 0, dw, dh);
+  } else {
+    ctx.drawImage(sourceImg, sx, sy, sw, sh, dx, dy, dw, dh);
   }
-
-  if (doFront) FRONT.forEach(pastePart);
-  if (doBack)  BACK.forEach(pastePart);
-  return skin;
+  ctx.restore();
 }
 
 function render() {
   if (!sourceImg) return;
-  const skin = buildSkin();
+  const crop = getCrop();
+  const doFront = document.getElementById('doFront').checked;
+  const doBack  = document.getElementById('doBack').checked;
 
-  // Character preview: draw each front part into a 160x320 canvas (10x scale)
-  const S = 10; // scale
-  const cp = document.getElementById('charPreview').getContext('2d');
-  cp.clearRect(0, 0, 160, 320);
-  cp.fillStyle = '#c8e6c9'; cp.fillRect(0, 0, 160, 320);
-  FRONT.forEach(p => {
-    // Draw from skin UV back into char position at 10x
-    cp.imageSmoothingEnabled = false;
-    cp.drawImage(skin, p.ux, p.uy, p.uw, p.uh, p.cx * S, p.cy * S, p.cw * S, p.ch * S);
-  });
-
-  // UV preview
-  const uv = document.getElementById('uvPreview').getContext('2d');
-  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
-    uv.fillStyle = (x + y) % 2 === 0 ? '#ddd' : '#eee';
-    uv.fillRect(x * 4, y * 4, 4, 4);
+  // --- High-res character preview: draw directly from source ---
+  const PREV_W = 160, PREV_H = 320;
+  const charCtx = document.getElementById('charPreview').getContext('2d');
+  charCtx.clearRect(0, 0, PREV_W, PREV_H);
+  charCtx.fillStyle = '#c8e6c9';
+  charCtx.fillRect(0, 0, PREV_W, PREV_H);
+  const scaleX = PREV_W / 16, scaleY = PREV_H / 32;
+  if (doFront) {
+    FRONT.forEach(p => {
+      drawPartFromSource(charCtx, crop, p,
+        p.cx * scaleX, p.cy * scaleY, p.cw * scaleX, p.ch * scaleY, true);
+    });
   }
-  uv.imageSmoothingEnabled = false;
-  uv.drawImage(skin, 0, 0, 256, 256);
+
+  // --- Skin UV: build actual 64x64 skin ---
+  const skin = document.createElement('canvas');
+  skin.width = 64; skin.height = 64;
+  const skinCtx = skin.getContext('2d');
+  skinCtx.clearRect(0, 0, 64, 64);
+
+  function pasteToSkin(p) {
+    drawPartFromSource(skinCtx, crop, p, p.ux, p.uy, p.uw, p.uh, true);
+  }
+  if (doFront) FRONT.forEach(pasteToSkin);
+  if (doBack)  BACK.forEach(pasteToSkin);
+
+  // Draw UV preview scaled up
+  const uvCtx = document.getElementById('uvPreview').getContext('2d');
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    uvCtx.fillStyle = (x+y)%2===0?'#ddd':'#eee';
+    uvCtx.fillRect(x*4, y*4, 4, 4);
+  }
+  uvCtx.imageSmoothingEnabled = false;
+  uvCtx.drawImage(skin, 0, 0, 256, 256);
+
+  // Store skin for download
+  window._lastSkin = skin;
 }
 
 function doDownload() {
-  if (!sourceImg) return;
-  const skin = buildSkin();
+  if (!window._lastSkin) return;
   const a = document.createElement('a');
   a.download = 'skin.png';
-  a.href = skin.toDataURL('image/png');
+  a.href = window._lastSkin.toDataURL('image/png');
   a.click();
 }
 </script>
