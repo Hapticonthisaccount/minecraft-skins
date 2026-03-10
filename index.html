@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <title>Minecraft Skin Maker</title>
 <style>
-  body { font-family: sans-serif; padding: 24px; max-width: 700px; margin: 0 auto; background: #fff; }
+  body { font-family: sans-serif; padding: 24px; max-width: 900px; margin: 0 auto; background: #fff; }
   h2 { margin: 0 0 20px; }
   label { display: block; margin-bottom: 6px; font-weight: bold; }
   .section { margin-bottom: 20px; }
@@ -13,11 +13,17 @@
   .sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; }
   .slider-group label { font-weight: normal; font-size: 14px; margin-bottom: 4px; }
   input[type=range] { width: 100%; }
-  canvas { border: 1px solid #ccc; image-rendering: pixelated; display: block; }
-  button { padding: 8px 20px; font-size: 15px; cursor: pointer; margin-top: 4px; }
+  canvas { image-rendering: pixelated; display: block; }
+  button { padding: 8px 20px; font-size: 15px; cursor: pointer; }
   #drop { border: 2px dashed #aaa; padding: 20px; text-align: center; cursor: pointer; color: #555; border-radius: 4px; }
   #drop:hover { border-color: #555; }
   #controls { display: none; }
+  .previews { display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 20px; }
+  .preview-box { display: flex; flex-direction: column; gap: 6px; }
+  .preview-box label { font-weight: bold; margin-bottom: 0; }
+  #imgPreview { max-width: 200px; max-height: 200px; border: 1px solid #ccc; object-fit: contain; display: block; }
+  #skinPreview { border: 1px solid #ccc; background: #e8f4e8; }
+  #uvPreview { border: 1px solid #ccc; }
 </style>
 </head>
 <body>
@@ -33,6 +39,7 @@
 </div>
 
 <div id="controls">
+
   <div class="section">
     <label>Apply to</label>
     <div class="parts" id="partChecks"></div>
@@ -57,9 +64,19 @@
     </div>
   </div>
 
-  <div class="section">
-    <label>Preview (64×64 scaled up)</label>
-    <canvas id="preview" width="448" height="448"></canvas>
+  <div class="previews">
+    <div class="preview-box">
+      <label>Your image</label>
+      <img id="imgPreview" src="" alt="uploaded image">
+    </div>
+    <div class="preview-box">
+      <label>Character preview</label>
+      <canvas id="skinPreview" width="144" height="256"></canvas>
+    </div>
+    <div class="preview-box">
+      <label>Skin UV map (64×64)</label>
+      <canvas id="uvPreview" width="256" height="256"></canvas>
+    </div>
   </div>
 
   <button onclick="download()">Download skin.png</button>
@@ -84,6 +101,17 @@ const LABELS = {
   rightLeg:"Right Leg", leftLeg:"Left Leg"
 };
 
+// Character 2D layout: each part -> where to draw on character canvas (at 8x scale)
+// Canvas is 144x256 (18x32 tiles at 8px each)
+const CHAR_LAYOUT = {
+  face:     { dx: 8,  dy: 0,  dw: 64, dh: 64 },   // head 8x8 -> 64x64
+  body:     { dx: 8,  dy: 64, dw: 64, dh: 96 },   // body 8x12 -> 64x96
+  rightArm: { dx: 0,  dy: 64, dw: 32, dh: 96 },   // arm 4x12 -> 32x96 (on left side of screen = char's right)
+  leftArm:  { dx: 112,dy: 64, dw: 32, dh: 96 },   // arm on right of screen
+  rightLeg: { dx: 8,  dy: 160,dw: 32, dh: 96 },   // leg
+  leftLeg:  { dx: 40, dy: 160,dw: 32, dh: 96 },
+};
+
 let sourceImg = null;
 
 // Build checkboxes
@@ -98,14 +126,12 @@ Object.keys(PARTS).forEach(k => {
   partChecks.appendChild(lbl);
 });
 
-// File input
 document.getElementById('fileInput').addEventListener('change', e => {
   const file = e.target.files[0];
   if (!file) return;
   loadFile(file);
 });
 
-// Drag & drop
 const drop = document.getElementById('drop');
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.borderColor='#333'; });
 drop.addEventListener('dragleave', () => { drop.style.borderColor='#aaa'; });
@@ -117,6 +143,10 @@ drop.addEventListener('drop', e => {
 
 function loadFile(file) {
   const url = URL.createObjectURL(file);
+  // Show image preview
+  const imgEl = document.getElementById('imgPreview');
+  imgEl.src = url;
+
   const img = new Image();
   img.onload = () => {
     sourceImg = img;
@@ -127,14 +157,14 @@ function loadFile(file) {
   img.src = url;
 }
 
-// Sliders
 ['detail','zoom','panX','panY'].forEach(id => {
   document.getElementById(id).addEventListener('input', () => {
+    const v = document.getElementById(id).value;
     document.getElementById(id+'Label').textContent =
-      id === 'detail' ? 'Pixel size: ' + document.getElementById(id).value :
-      id === 'zoom'   ? 'Zoom: ' + document.getElementById(id).value + '%' :
-      id === 'panX'   ? 'Pan X: ' + document.getElementById(id).value + '%' :
-                        'Pan Y: ' + document.getElementById(id).value + '%';
+      id === 'detail' ? 'Pixel size: ' + v :
+      id === 'zoom'   ? 'Zoom: ' + v + '%' :
+      id === 'panX'   ? 'Pan X: ' + v + '%' :
+                        'Pan Y: ' + v + '%';
     render();
   });
 });
@@ -143,16 +173,15 @@ function buildSkin() {
   const canvas = document.createElement('canvas');
   canvas.width = 64; canvas.height = 64;
   const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,64,64);
 
   const detail = parseInt(document.getElementById('detail').value);
   const zoom   = parseInt(document.getElementById('zoom').value) / 100;
   const panX   = parseInt(document.getElementById('panX').value) / 100;
   const panY   = parseInt(document.getElementById('panY').value) / 100;
 
-  const sw = sourceImg.naturalWidth;
-  const sh = sourceImg.naturalHeight;
-  const cw = sw / zoom;
-  const ch = sh / zoom;
+  const sw = sourceImg.naturalWidth, sh = sourceImg.naturalHeight;
+  const cw = sw / zoom, ch = sh / zoom;
   const ox = panX * (sw - cw);
   const oy = panY * (sh - ch);
 
@@ -163,7 +192,6 @@ function buildSkin() {
   Object.keys(PARTS).forEach(k => {
     if (!document.getElementById('cb_' + k).checked) return;
     const p = PARTS[k];
-
     const pw = Math.max(1, Math.round(p.w / detail));
     const ph = Math.max(1, Math.round(p.h / detail));
 
@@ -186,13 +214,38 @@ function buildSkin() {
   return canvas;
 }
 
+function drawCharacterPreview(skin) {
+  const canvas = document.getElementById('skinPreview');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Light background
+  ctx.fillStyle = '#ddeedd';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // For each visible front-facing part, draw from the skin UV
+  const partsToShow = ['face', 'body', 'rightArm', 'leftArm', 'rightLeg', 'leftLeg'];
+  partsToShow.forEach(k => {
+    const p = PARTS[k];
+    const c = CHAR_LAYOUT[k];
+    if (!c) return;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(skin, p.x, p.y, p.w, p.h, c.dx, c.dy, c.dw, c.dh);
+  });
+}
+
 function render() {
   if (!sourceImg) return;
   const skin = buildSkin();
-  const ctx = document.getElementById('preview').getContext('2d');
-  ctx.clearRect(0, 0, 448, 448);
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(skin, 0, 0, 448, 448);
+
+  // UV preview
+  const uvCtx = document.getElementById('uvPreview').getContext('2d');
+  uvCtx.clearRect(0, 0, 256, 256);
+  uvCtx.imageSmoothingEnabled = false;
+  uvCtx.drawImage(skin, 0, 0, 256, 256);
+
+  // Character preview
+  drawCharacterPreview(skin);
 }
 
 function download() {
